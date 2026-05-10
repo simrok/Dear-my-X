@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Dear my X",
+    "slug": "dear-my-x",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "dearmyx",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dearmyx.app"
+    },
+    "android": {
+      "package": "com.dearmyx.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": ["expo-secure-store"]
+  }
+}

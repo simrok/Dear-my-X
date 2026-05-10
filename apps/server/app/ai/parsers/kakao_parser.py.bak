@@ -1,0 +1,175 @@
+"""카카오톡 .txt 대화 파서.
+
+지원 포맷:
+    1. PC (Windows / macOS) 내보내기 — 1순위 지원
+       예시:
+           --------------- 2024년 1월 1일 월요일 ---------------
+           [홍길동] [오후 3:01] 안녕하세요
+           [김철수] [오후 3:02] 네 안녕
+                                   (멀티라인은 다음 줄로 이어짐)
+    2. 모바일 (Android / iOS) 내보내기 — best-effort
+       예시:
+           2024년 1월 1일 오후 3:01, 홍길동 : 안녕하세요
+           2024. 1. 1. 오후 3:01, 홍길동 : 안녕하세요
+
+제한 사항:
+    - 영어 / 다른 언어 로케일의 카카오톡 export 는 미지원 (한국어 ko_KR 가정).
+    - 사진 / 동영상 / 이모티콘 / 파일 메시지 라인은 본문에서 제외.
+    - 멀티라인 메시지는 첫 줄 형식 매칭 후, 다음 형식 라인이 나올 때까지 이어 붙임.
+    - 시스템 메시지 ("OOO님이 들어왔습니다." 등) 는 무시.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from datetime import date, datetime, time
+
+
+# --- regex ---
+
+# PC 형식 날짜 구분선
+RE_DATE_SEPARATOR_PC = re.compile(
+    r"^-+\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일.*-+\s*$"
+)
+# PC 형식 메시지 라인: [발화자] [오후 3:01] 본문
+RE_MESSAGE_PC = re.compile(
+    r"^\[(?P<speaker>.+?)\]\s*\[(?P<ampm>오전|오후)\s*(?P<hour>\d{1,2}):(?P<minute>\d{2})\]\s*(?P<text>.*)$"
+)
+# 모바일 형식 메시지 라인 (best-effort)
+RE_MESSAGE_MOBILE = re.compile(
+    r"^(?P<year>\d{4})[년.\s]+(?P<month>\d{1,2})[월.\s]+(?P<day>\d{1,2})[일.\s]+"
+    r"(?P<ampm>오전|오후)\s*(?P<hour>\d{1,2}):(?P<minute>\d{2}),\s*(?P<speaker>[^:]+?)\s*:\s*(?P<text>.*)$"
+)
+# 시스템 메시지 패턴 (한국어)
+RE_SYSTEM = re.compile(
+    r"(님이 들어왔습니다\.|님이 나갔습니다\.|님을 초대했습니다\.|"
+    r"님이 .* 내보냈습니다\.|채팅방을 만들었습니다\.|"
+    r"^저장한 날짜\s*[:：]|^.+ 님과 카톡대화|^.+ 님과의 카카오톡 대화)"
+)
+# 본문이 미디어/시스템 only 인 라인
+RE_MEDIA_ONLY = re.compile(r"^(사진|사진 \d+장|동영상|이모티콘|음성메시지|파일|<.+>)\s*$")
+
+
+@dataclass
+class KakaoMessage:
+    speaker: str
+    timestamp: datetime | None
+    text: str
+
+
+@dataclass
+class ParseResult:
+    messages: list[KakaoMessage] = field(default_factory=list)
+    speakers: list[str] = field(default_factory=list)  # 등장 순서
+    detected_format: str = "unknown"  # "pc" | "mobile" | "unknown"
+    skipped_lines: int = 0
+
+
+def _to_24h(ampm: str, hour: int, minute: int) -> time:
+    h = hour % 12
+    if ampm == "오후":
+        h += 12
+    return time(hour=h, minute=minute)
+
+
+class KakaoParser:
+    """카카오톡 .txt 파서.
+
+    동일한 인스턴스를 여러 파일에 재사용해도 안전 (상태 없음).
+    """
+
+    def parse(self, raw_text: str) -> ParseResult:
+        result = ParseResult()
+        # 헤더 BOM 제거
+        if raw_text.startswith("﻿"):
+            raw_text = raw_text[1:]
+
+        current_date: date | None = None
+        last_msg: KakaoMessage | None = None
+        seen_speakers: dict[str, None] = {}  # 등장 순서 보존
+        format_votes = {"pc": 0, "mobile": 0}
+
+        for raw_line in raw_text.splitlines():
+            line = raw_line.rstrip()
+
+            # 빈 줄: 멀티라인 종료 신호
+            if not line:
+                last_msg = None
+                continue
+
+            # 시스템 메시지
+            if RE_SYSTEM.search(line):
+                result.skipped_lines += 1
+                last_msg = None
+                continue
+
+            # 날짜 구분선 (PC)
+            m = RE_DATE_SEPARATOR_PC.match(line)
+            if m:
+                current_date = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                last_msg = None
+                continue
+
+            # PC 메시지
+            m = RE_MESSAGE_PC.match(line)
+            if m:
+                format_votes["pc"] += 1
+                speaker = m.group("speaker").strip()
+                t = _to_24h(m.group("ampm"), int(m.group("hour")), int(m.group("minute")))
+                ts = datetime.combine(current_date, t) if current_date else None
+                text = m.group("text").strip()
+
+                if not text or RE_MEDIA_ONLY.match(text):
+                    result.skipped_lines += 1
+                    last_msg = None
+                    continue
+
+                msg = KakaoMessage(speaker=speaker, timestamp=ts, text=text)
+                result.messages.append(msg)
+                seen_speakers.setdefault(speaker, None)
+                last_msg = msg
+                continue
+
+            # 모바일 메시지
+            m = RE_MESSAGE_MOBILE.match(line)
+            if m:
+                format_votes["mobile"] += 1
+                speaker = m.group("speaker").strip()
+                d = date(int(m.group("year")), int(m.group("month")), int(m.group("day")))
+                t = _to_24h(m.group("ampm"), int(m.group("hour")), int(m.group("minute")))
+                ts = datetime.combine(d, t)
+                text = m.group("text").strip()
+
+                if not text or RE_MEDIA_ONLY.match(text):
+                    result.skipped_lines += 1
+                    last_msg = None
+                    continue
+
+                msg = KakaoMessage(speaker=speaker, timestamp=ts, text=text)
+                result.messages.append(msg)
+                seen_speakers.setdefault(speaker, None)
+                last_msg = msg
+                continue
+
+            # 미디어 only 라인은 멀티라인에 포함시키지 않고 그냥 스킵
+            if RE_MEDIA_ONLY.match(line.strip()):
+                result.skipped_lines += 1
+                last_msg = None
+                continue
+
+            # 어디에도 매칭 안 된 줄: 직전 메시지의 멀티라인 본문으로 간주
+            if last_msg is not None:
+                last_msg.text = (last_msg.text + "\n" + line).strip()
+            else:
+                # 헤더 / 메타 / 알 수 없는 라인
+                result.skipped_lines += 1
+
+        result.speakers = list(seen_speakers.keys())
+        result.detected_format = (
+            "pc" if format_votes["pc"] >= format_votes["mobile"] and format_votes["pc"] > 0
+            else ("mobile" if format_votes["mobile"] > 0 else "unknown")
+        )
+        return result
+
+    def extract_speakers(self, r

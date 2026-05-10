@@ -1,0 +1,40 @@
+{
+  "name": "dear-my-x",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dear my X — 가상 AI 페르소나 채팅 앱 (monorepo root)",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "mobile": "pnpm --filter @dear-my-x/mobile",
+    "shared": "pnpm --filter @dear-my-x/shared",
+    "mobile:start": "pnpm --filter @dear-my-x/mobile start",
+    "mobile:ios": "pnpm --filter @dear-my-x/mobile ios",
+    "mobile:android": "pnpm --filter @dear-my-x/mobile android",
+    "shared:build": "pnpm --filter @dear-my-x/shared build",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "lint": "pnpm -r --parallel lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "server:dev": "echo 'Run: cd apps/server && uvicorn app.main:app --reload --port 8000'",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "compose:up": "docker compose up",
+    "compose:down": "docker compose down"
+  },
+  "devDependencies": {
+    "babel-plugin-module-resolver": "^5.0.3",
+    "prettier": "^3.3.3",
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.29.2",
+    "@react-navigation/core": "^6.4.17",
+    "hoist-non-react-statics": "^3.3.2",
+    "invariant": "^2.2.4",
+    "react-dom": "18.2.0",
+    "styleq": "^0.2.1"
+  }
+}

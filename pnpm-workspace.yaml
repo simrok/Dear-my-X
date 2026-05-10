@@ -1,0 +1,4 @@
+packages:
+  - "apps/mobile"
+  # - "apps/web"        # 추후 웹 앱 추가 시 활성화
+  - "packages/*"
